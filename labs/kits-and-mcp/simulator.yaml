@@ -1,0 +1,391 @@
+version: "2.0"
+
+metadata:
+  id: kits-and-mcp
+  title: "Kits and the MCP Gateway"
+  summary: "A short, simulated look at the two ways to give a sandboxed agent what it needs."
+  authors: ["Docker Samples"]
+
+objectives:
+  - "See what a sandbox deliberately does not have"
+  - "Apply a kit at creation and watch what it adds"
+  - "Register an MCP server on the host and use it from inside a sandbox"
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+# Cosmetic output pacing only. `delay:` on an output entry names one of these
+# profiles (or gives raw milliseconds), so simulated work feels like it takes a
+# moment. It never changes WHAT is printed, so the lab stays deterministic.
+settings:
+  pace:
+    beat: 300 # a short beat between related lines
+    pull: 900 # an image layer downloading
+    install: 1200 # a package installing
+    tool: 700 # an MCP tool call
+
+# ── State ─────────────────────────────────────────────────────────────────────
+state:
+  sandbox:
+    running: false
+    name: "" # the current sandbox's name, for templated output
+  ruff:
+    installed: false # true only in a sandbox created WITH the kit
+  mcp:
+    registered: false # is the acme server registered on the host?
+    attached: false # can the agent reach it through the gateway?
+
+defaults:
+  unmatched:
+    stderr: ["Error: that command isn't part of this lab."]
+    exit: 1
+  unmatchedAgent:
+    output:
+      - "I can only answer the prompts this lab has scripted — each one on the"
+      - "left has a Run button."
+
+scenarios:
+  # ── Sandbox lifecycle ─────────────────────────────────────────────────────
+
+  - id: sbx-run-with-kit
+    description: "Create a sandbox with the ruff-lint mixin applied."
+    completes: run-with-a-kit
+    when:
+      command: [sbx, run, claude]
+      args:
+        --kit: { any: true }
+        --name: { any: true }
+      terminal: sandbox
+      state: { sandbox.running: false }
+    then:
+      state:
+        sandbox.running: true
+        sandbox.name: "{{ args.name }}"
+        ruff.installed: true
+      # What the kit contributed, as real files in the shared virtual
+      # filesystem: `setup.files` dropped one in, `agentInstructions` became
+      # the other.
+      files:
+        - create: "ruff.toml"
+          content: |
+            line-length = 100
+
+            [lint]
+            select = ["E", "F", "I"]
+        - create: "kits-memory/ruff-lint.md"
+          content: |
+            Ruff is installed. Run `ruff check` before committing.
+            Shared config lives at `/workspace/ruff.toml`.
+      output:
+        - "── RESOLVE SETUP"
+        - "     sandbox    {{ args.name }}"
+        - "     agent      claude"
+        - "     workspace  /Users/you/projects/summarize (rw)"
+        - "     kits       {{ args.kit }} → ruff-lint (mixin)"
+        - { text: "   ✓ configuration resolved", delay: beat }
+        - "── CREATE SANDBOX"
+        - { text: "   ✓ Created sandbox {{ args.name }}", delay: pull }
+        - "── APPLY KITS"
+        - "   → ruff-lint"
+        - "     install    pip install --quiet ruff"
+        - "     files      /workspace/ruff.toml"
+        - "     memory     kits-memory/ruff-lint.md"
+        - "     network    allow docs.astral.sh:443"
+        - { text: "   ✓ kits applied", delay: install }
+      session:
+        prompt: "claude> "
+        intro:
+          - "I'm Claude, running in the demo sandbox."
+          - "My memory says ruff is installed here and that I should run"
+          - "`ruff check` before committing. Ask me to lint the project."
+          - "Type /exit to leave — the sandbox keeps running."
+        outro:
+          - "Detaching. The sandbox is still there — see `sbx ls`."
+
+  - id: sbx-run-with-mcp
+    description: "Create a sandbox whose MCP server set is fixed at creation."
+    when:
+      command: [sbx, run, claude]
+      args:
+        --static-mcp: { any: true }
+        --name: { any: true }
+      terminal: sandbox
+      state: { sandbox.running: false }
+    then:
+      state:
+        sandbox.running: true
+        sandbox.name: "{{ args.name }}"
+        mcp.attached: true
+      output:
+        - "── RESOLVE SETUP"
+        - "     sandbox    {{ args.name }}"
+        - "     agent      claude"
+        - "     workspace  /Users/you/projects/summarize (rw)"
+        - "     mcp        acme (static set, chosen now)"
+        - { text: "   ✓ configuration resolved", delay: beat }
+        - "── CREATE SANDBOX"
+        - { text: "   ✓ Created sandbox {{ args.name }}", delay: pull }
+        - "── START MCP GATEWAY"
+        - "     acme       remote   https://mcp.acme.com/mcp"
+        - "     header     Authorization: Bearer ****   (injected on the host)"
+        - { text: "   ✓ gateway ready — 1 server", delay: beat }
+      session:
+        prompt: "claude> "
+        intro:
+          - "I'm Claude, running in the demo sandbox."
+          - "One MCP endpoint is wired up for me: the gateway. Through it I can"
+          - "see the acme server's tools — acme.search, acme.get_page, and so on."
+          - "Type /exit to leave."
+        outro:
+          - "Detaching. The sandbox is still there — see `sbx ls`."
+
+  - id: sbx-run-bare
+    description: "A plain sandbox: the agent, the workspace, and nothing added."
+    completes: start-a-sandbox
+    when:
+      command: [sbx, run, claude]
+      args:
+        --name: { any: true }
+        --kit: false
+        --static-mcp: false
+      terminal: sandbox
+      state: { sandbox.running: false }
+    then:
+      state:
+        sandbox.running: true
+        sandbox.name: "{{ args.name }}"
+      output:
+        - "── RESOLVE SETUP"
+        - "     sandbox    {{ args.name }}"
+        - "     agent      claude"
+        - "     workspace  /Users/you/projects/summarize (rw)"
+        - "     kits       (none)"
+        - "     mcp        (none)"
+        - { text: "   ✓ configuration resolved", delay: beat }
+        - "── PREPARE IMAGE"
+        - "   → pull docker/sandbox-templates:claude-code-docker"
+        - { text: "     b576c7b820e2 downloaded  322.9 MB", delay: pull }
+        - { text: "   ✓ image ready", delay: beat }
+        - "── CREATE SANDBOX"
+        - { text: "   ✓ Created sandbox {{ args.name }}", delay: beat }
+      session:
+        prompt: "claude> "
+        intro:
+          - "I'm Claude, running in an isolated sandbox with your workspace"
+          - "mounted. Nothing has been added to this environment beyond the"
+          - "default template. Type /exit to leave."
+        outro:
+          - "Detaching. The sandbox is still there — see `sbx ls`."
+
+  - id: sbx-run-in-host
+    description: "sbx run works from the host; this lab keeps sessions in the Sandbox tab."
+    when:
+      command: [sbx, run, claude]
+      terminal: host
+    then:
+      stderr:
+        - "This lab opens agent sessions in the Sandbox tab, so the host commands"
+        - "and the agent stay side by side. Switch tabs and run it there."
+      exit: 1
+
+  - id: sbx-run-busy
+    when:
+      command: [sbx, run, claude]
+      state: { sandbox.running: true }
+    then:
+      stderr:
+        - "This lab runs one sandbox at a time. Remove the current one first:"
+        - "  sbx rm {{ state.sandbox.name }}"
+      exit: 1
+
+  - id: sbx-rm
+    when:
+      command: [sbx, rm]
+      args: { 0: { any: true } }
+      state: { sandbox.running: true }
+    then:
+      state:
+        sandbox.running: false
+        sandbox.name: ""
+        ruff.installed: false
+        mcp.attached: false
+      output:
+        - "Deleting sandbox {{ args.0 }}..."
+        - { text: "Sandbox '{{ args.0 }}' removed", delay: beat }
+
+  - id: sbx-rm-not-found
+    when:
+      command: [sbx, rm]
+      args: { 0: { any: true } }
+    then:
+      stderr:
+        - "Error: sandbox '{{ args.0 }}' not found (run 'sbx ls' to see your sandboxes)"
+      exit: 1
+
+  - id: sbx-ls-running
+    when:
+      command: [sbx, ls]
+      state: { sandbox.running: true }
+    then:
+      output:
+        - "SANDBOX   AGENT    STATUS    PORTS   WORKSPACE"
+        - "{{ state.sandbox.name }}      claude   running           /Users/you/projects/summarize"
+
+  - id: sbx-ls-empty
+    when:
+      command: [sbx, ls]
+    then:
+      output:
+        - "No sandboxes found."
+        - "Launch one: sbx run claude"
+
+  # ── The MCP server, registered on the HOST ────────────────────────────────
+
+  - id: mcp-add
+    description: "A remote server whose API key stays in the host credential store."
+    completes: register-a-server
+    when:
+      command: [sbx, mcp, add]
+      args:
+        0: { any: true }
+        --url: { any: true }
+    then:
+      state: { mcp.registered: true }
+      output:
+        - 'Resolving MCP server "{{ args.0 }}"...'
+        - {
+            text: "Header template stored: Authorization: Bearer ${api-key} — set the value with: sbx secret set mcp:acme:api-key",
+            delay: beat,
+          }
+        - 'MCP server "{{ args.0 }}" registered (type: remote)'
+
+  # The value never enters a sandbox: it is stored on the host, and the proxy
+  # writes it into the header on the way out.
+  - id: secret-set
+    when:
+      command: [sbx, secret, set]
+      args: { 0: { any: true } }
+    then:
+      input:
+        prompt: "Enter secret: "
+        key: value
+        mask: true
+        then:
+          output:
+            - 'Saved secret for service "{{ args.0 }}" in scope "(global)"'
+
+  - id: mcp-ls-registered
+    when:
+      command: [sbx, mcp, ls]
+      state: { mcp.registered: true }
+    then:
+      output:
+        - "NAME                 TYPE     URL/COMMAND"
+        - "acme                 remote   https://mcp.acme.com/mcp"
+
+  - id: mcp-ls-empty
+    when:
+      command: [sbx, mcp, ls]
+    then:
+      output:
+        - "No MCP servers registered."
+        - "Register one: sbx mcp add <name> --url <url>"
+
+  # ── ruff — installed by the kit, inside the sandbox only ──────────────────
+
+  - id: ruff-check
+    when:
+      command: [ruff, check]
+      terminal: sandbox
+      state: { ruff.installed: true }
+    then:
+      output:
+        - "app.py:1:8: F401 [*] `os` imported but unused"
+        - "app.py:7:5: F841 [*] Local variable `unused` is assigned to but never used"
+        - "Found 2 errors."
+        - "[*] 2 fixable with the `--fix` option."
+      exit: 1
+
+  - id: ruff-missing
+    description: "No ruff on the host, and none in a sandbox built without the kit."
+    when:
+      command: [ruff]
+    then:
+      stderr:
+        - "bash: ruff: command not found"
+      exit: 127
+
+  # ── Agent turns ───────────────────────────────────────────────────────────
+
+  - id: agent-lint-with-ruff
+    when:
+      agent: true
+      terminal: sandbox
+      promptContains: [lint]
+      state: { ruff.installed: true }
+    then:
+      output:
+        - "My instructions for this sandbox say to run ruff, and the shared config"
+        - "is already at /workspace/ruff.toml, so I don't have to guess."
+        - ""
+        - "  $ ruff check ."
+        - { text: "  app.py:1:8: F401 [*] `os` imported but unused", delay: tool }
+        - "  app.py:7:5: F841 [*] Local variable `unused` is assigned to but never used"
+        - "  Found 2 errors."
+        - ""
+        - "Both are auto-fixable. Want me to fix them?"
+
+  - id: agent-lint-no-ruff
+    when:
+      agent: true
+      terminal: sandbox
+      promptContains: [lint]
+    then:
+      output:
+        - "Let me look for a linter."
+        - ""
+        - "  $ ruff check ."
+        - { text: "  bash: ruff: command not found", delay: beat }
+        - ""
+        - "There isn't one here. I could pip install ruff — the default policy"
+        - "allows PyPI — but that only fixes this sandbox: the next one starts"
+        - "bare again, and I still wouldn't know which rules you care about or"
+        - "where your shared config lives."
+
+  - id: agent-search
+    completes: call-a-tool
+    when:
+      agent: true
+      terminal: sandbox
+      promptContains: [acme, runbook]
+      state: { mcp.attached: true }
+    then:
+      output:
+        - "Searching Acme through the gateway."
+      mcp:
+        - tool: "acme.search"
+          arguments:
+            query: "on-call runbook"
+          result: |
+            3 results
+            1. On-call runbook — summarize service   (updated 2 days ago)
+            2. On-call rotation — platform team      (updated 3 weeks ago)
+            3. Incident template                     (updated 4 months ago)
+
+            Result 1, step 1: run the linter and the test suite on the release
+            commit before paging anyone.
+
+  - id: agent-token-question
+    when:
+      agent: true
+      terminal: sandbox
+      promptContains: [token]
+      state: { mcp.attached: true }
+    then:
+      output:
+        - "No — and I can't get it."
+        - ""
+        - "  $ env | grep -i acme"
+        - { text: "  (no output)", delay: beat }
+        - ""
+        - "All I have is one MCP endpoint, the gateway. Your API key is stored on"
+        - "your host as mcp:acme:api-key, and the proxy writes it into the"
+        - "Authorization header after my request has left the sandbox."

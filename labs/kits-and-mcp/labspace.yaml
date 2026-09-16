@@ -1,0 +1,72 @@
+title: "Kits and the MCP Gateway"
+description: "Two ways to give a sandboxed agent what it needs — a short, simulated demonstration of each."
+
+# Catalog card metadata for the landing page (labs.json is generated from this).
+catalog:
+  icon: extension
+  tags: ["sandboxes", "kits", "mcp"]
+  estimatedMinutes: 10
+  order: 3
+
+# Progress is stored per lab and per version, so bumping this when steps change
+# invalidates stale completion records.
+version: "1.1.0"
+
+# Path to the simulator scenario spec (relative to this file). Both terminals
+# share this one spec, one state tree, and one virtual filesystem.
+simulator: simulator.yaml
+
+# Two tabs for the two sides of this lab: `sbx` runs on your HOST and holds the
+# credentials; the agent runs in the SANDBOX and only sees what you gave it.
+# Scenarios scope to a tab with `when.terminal` — `ruff` only exists in the
+# sandbox, and `sbx run` opens its session there.
+terminals:
+  - id: host
+    title: Host
+    icon: dns
+  - id: sandbox
+    title: Sandbox
+    icon: smart_toy
+
+# The workspace both tabs share — a tiny Python project with two lint errors.
+files:
+  app.py: |
+    import os
+    import json
+
+
+    def summarize(items):
+        total = 0
+        unused = "kept for later"
+        for item in items:
+            total += item
+        return json.dumps({"count": len(items), "total": total})
+
+
+    if __name__ == "__main__":
+        print(summarize([1, 2, 3]))
+  README.md: |
+    # summarize
+
+    A one-function sample project used by the "Kits and the MCP Gateway" lab.
+    `app.py` has two deliberate lint errors in it.
+
+sections:
+  - title: Introduction
+    contentPath: 00-intro.md
+  - title: Kits
+    contentPath: 01-kits.md
+    steps:
+      - id: start-a-sandbox
+        title: "Start a plain sandbox"
+      - id: run-with-a-kit
+        title: "Create a sandbox with a kit applied"
+  - title: The MCP Gateway
+    contentPath: 02-mcp-gateway.md
+    steps:
+      - id: register-a-server
+        title: "Register a server on the host"
+      - id: call-a-tool
+        title: "Have the agent call a tool through the gateway"
+  - title: Recap
+    contentPath: 03-recap.md
