@@ -9,7 +9,12 @@ gives the agent exactly one MCP endpoint: the **gateway**.
 
 ## Register a server on the host
 
-Clean up the sandbox from the last section first:
+Clean up after the last section first — leave the agent session, then throw the
+sandbox away:
+
+```prompt terminal-id=sandbox
+/exit
+```
 
 ```bash terminal-id=host
 sbx rm demo
