@@ -373,6 +373,22 @@ scenarios:
             Result 1, step 1: run the linter and the test suite on the release
             commit before paging anyone.
 
+  # A safety net for the one confusing failure this lab can produce: a learner
+  # still in an agent session hits the Run button on a `bash` block, so the
+  # command text arrives as a prompt. Without this it lands on
+  # `defaults.unmatchedAgent`, which reads like the lab is broken.
+  - id: agent-shell-command
+    description: "An sbx command typed at the agent prompt — the session is still open."
+    when:
+      agent: true
+      terminal: sandbox
+      promptContains: [sbx]
+    then:
+      output:
+        - "That's a shell command, and you're still talking to me — the agent"
+        - "inside the sandbox. Type /exit to get back to the shell, then run it"
+        - "again. (Or prefix it with ! to run it without leaving the session.)"
+
   - id: agent-token-question
     when:
       agent: true
